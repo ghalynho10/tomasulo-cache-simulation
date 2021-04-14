@@ -239,52 +239,22 @@ static void dispatch(procsim_stats *stats)
     while (!DQ.empty() && RS.size() <= RS_max_value && ROB_T.size() < ROB_size)
     {
         SQ sqObject;
-        if (DQ[0].opcode_sq == OP_NOP)
+        if (DQ[0].opcode_sq != OP_NOP)
         {
-            continue;
-        }
-        else if (DQ[0].dest_reg < (0))
-        {
-            sqObject.address = DQ[0].address;
-            sqObject.opcode_sq = DQ[0].opcode_sq;
-            sqObject.dest_reg = -1;
-            sqObject.tag = DQ[0].tag;
-            if (DQ[0].src1_reg < 0)
-            {
-                sqObject.src1_reg = -1;
-            }
-            else
-            {
-                // sqObject.src1_reg = RAT[DQ[0].src1_reg];
-                freeRob(DQ[0].src1_reg, sqObject.src1_reg, sqObject.src1_ready);
-            }
-            if (DQ[0].src2_reg < 0)
-            {
-                sqObject.src2_reg = -1;
-            }
-            else
-            {
-                freeRob(DQ[0].src2_reg, sqObject.src2_reg, sqObject.src2_ready);
-            }
 
-            // DQ.erase(DQ.begin());
-        }
-        else
-        {
-            if (freePreg)
+            if (DQ[0].dest_reg < (0))
             {
                 sqObject.address = DQ[0].address;
                 sqObject.opcode_sq = DQ[0].opcode_sq;
+                sqObject.dest_reg = -1;
                 sqObject.tag = DQ[0].tag;
-                sqObject.dest_reg = RegF[freePRegIndex()].preg;
-                RegF[freePRegIndex()].free = false;
-                RAT[DQ[0].dest_reg] = sqObject.dest_reg;
                 if (DQ[0].src1_reg < 0)
                 {
                     sqObject.src1_reg = -1;
                 }
                 else
                 {
+                    // sqObject.src1_reg = RAT[DQ[0].src1_reg];
                     freeRob(DQ[0].src1_reg, sqObject.src1_reg, sqObject.src1_ready);
                 }
                 if (DQ[0].src2_reg < 0)
@@ -296,16 +266,48 @@ static void dispatch(procsim_stats *stats)
                     freeRob(DQ[0].src2_reg, sqObject.src2_reg, sqObject.src2_ready);
                 }
             }
+            else
+            {
+                if (freePreg)
+                {
+                    sqObject.address = DQ[0].address;
+                    sqObject.opcode_sq = DQ[0].opcode_sq;
+                    sqObject.tag = DQ[0].tag;
+                    sqObject.dest_reg = RegF[freePRegIndex()].preg;
+                    RegF[freePRegIndex()].free = false;
+                    RAT[DQ[0].dest_reg] = sqObject.dest_reg;
+                    if (DQ[0].src1_reg < 0)
+                    {
+                        sqObject.src1_reg = -1;
+                    }
+                    else
+                    {
+                        freeRob(DQ[0].src1_reg, sqObject.src1_reg, sqObject.src1_ready);
+                    }
+                    if (DQ[0].src2_reg < 0)
+                    {
+                        sqObject.src2_reg = -1;
+                    }
+                    else
+                    {
+                        freeRob(DQ[0].src2_reg, sqObject.src2_reg, sqObject.src2_ready);
+                    }
+                }
+            }
+
+            RS.push_back(sqObject);
+
+            ROB robObject;
+            robObject.prev_preg = RAT[DQ[0].dest_reg];
+            robObject.regno = DQ[0].dest_reg;
+            robObject.ready = false;
+            robObject.tag = DQ[0].tag;
+            ROB_T.push_back(robObject);
         }
-
-        RS.push_back(sqObject);
-
-        ROB robObject;
-        robObject.prev_preg = RAT[DQ[0].dest_reg];
-        robObject.regno = DQ[0].dest_reg;
-        robObject.ready = false;
-        robObject.tag = DQ[0].tag;
-        ROB_T.push_back(robObject);
+        else
+        {
+            continue;
+        }
 
         DQ.erase(DQ.begin());
     }
