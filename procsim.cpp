@@ -238,9 +238,13 @@ static void dispatch(procsim_stats *stats)
 
     while (!DQ.empty() && RS.size() <= RS_max_value && ROB_T.size() < ROB_size)
     {
-        SQ sqObject;
-        if (DQ[0].opcode_sq != OP_NOP)
+        if (GLOBAL_STALL)
         {
+            break;
+        }
+        if ((DQ[0].opcode_sq != OP_NOP) && DQ[0].opcode_sq != 7)
+        {
+            SQ sqObject;
 
             if (DQ[0].dest_reg < (0))
             {
@@ -303,6 +307,10 @@ static void dispatch(procsim_stats *stats)
             robObject.ready = false;
             robObject.tag = DQ[0].tag;
             ROB_T.push_back(robObject);
+        }
+        else if (DQ[0].opcode_sq == 7)
+        {
+            GLOBAL_STALL = true;
         }
         else
         {
