@@ -324,68 +324,68 @@ static void dispatch(procsim_stats *stats)
 
 static void schedule(procsim_stats *stats)
 {
-    // for (uint64_t i = 0; i < RS.size(); i++)
-    // {
-    //     if ((RS[i].opcode_sq == OP_ADD || RS[i].opcode_sq == OP_BR) && J > 0)
-    //     {
-    //         J--;
-    //         if (RS[i].src1_ready && RS[i].src2_ready)
-    //         {
-    //             J_latency--;
-    //         }
-    //     }
-    //     if (RS[i].opcode_sq == OP_MUL && K > 0)
-    //     {
-    //         J--;
-    //         if (RS[i].src1_ready && RS[i].src2_ready)
-    //         {
-    //             K_latency--;
-    //         }
-    //     }
-    //     if (RS[i].opcode_sq == OP_MUL && K > 0)
-    //     {
-    //         J--;
-    //         if (RS[i].src1_ready && RS[i].src2_ready)
-    //         {
-    //             K_latency--;
-    //         }
-    //     }
-    // }
 
     for (uint64_t i = 0; i < RS.size(); i++)
     {
         if (RS[i].src1_ready && RS[i].src2_ready)
         {
-            if ((RS[i].opcode_sq == OP_ADD || RS[i].opcode_sq == OP_BR) && J > 0)
+            if ((RS[i].opcode_sq == OP_ADD || RS[i].opcode_sq == OP_BR || RS[i].opcode_sq == 7) && J > 0)
             {
                 FU fuObject;
+                fuObject.tag = RS[i].tag;
                 fuObject.dest_reg = RS[i].dest_reg;
                 fuObject.latency = 1;
                 Adder.push_back(fuObject);
-                J - 1;
+                J = J - 1;
             }
-            else if (RS[i].opcode_sq == OP_MUL && K > 0)
+            else if (RS[i].opcode_sq == OP_MUL)
             {
-                FU fuObject;
-                fuObject.dest_reg = RS[i].dest_reg;
-                fuObject.latency = 3;
-                Multiplier.push_back(fuObject);
-                K - 1;
+                if (K > 0)
+                {
+                    FU fuObject;
+                    fuObject.tag = RS[i].tag;
+                    fuObject.dest_reg = RS[i].dest_reg;
+                    fuObject.latency = 3;
+                    Multiplier.push_back(fuObject);
+                    K = K - 1;
+                }
+                else if ((K == 0) && (Multiplier.size() < 3) && Multiplier[Multiplier.size() - 1].latency < 3)
+                {
+                    FU fuObject;
+                    fuObject.tag = RS[i].tag;
+                    fuObject.dest_reg = RS[i].dest_reg;
+                    fuObject.latency = 3;
+                    Multiplier.push_back(fuObject);
+                }
             }
-            else if (RS[i].opcode_sq == OP_LOAD && L > 0)
+            else if (RS[i].opcode_sq == OP_LOAD)
             {
-                FU fuObject;
-                fuObject.dest_reg = RS[i].dest_reg;
-                fuObject.latency = 2;
-                Store_Loader.push_back(fuObject);
-                L - 1;
+                if (L > 0)
+                {
+                    FU fuObject;
+                    fuObject.tag = RS[i].tag;
+                    fuObject.dest_reg = RS[i].dest_reg;
+                    fuObject.latency = 2;
+                    Store_Loader.push_back(fuObject);
+                    L = L - 1;
+                }
+                else if ((L == 0) && (Store_Loader.size() < 2) && Store_Loader[Store_Loader.size() - 1].latency < 2)
+                {
+                    FU fuObject;
+                    fuObject.tag = RS[i].tag;
+                    fuObject.dest_reg = RS[i].dest_reg;
+                    fuObject.latency = 2;
+                    Store_Loader.push_back(fuObject);
+                }
             }
             else
             {
                 FU fuObject;
+                fuObject.tag = RS[i].tag;
                 fuObject.dest_reg = RS[i].dest_reg;
                 fuObject.latency = 1;
                 Store_Loader.push_back(fuObject);
+                L = L - 1;
             }
         }
     }
