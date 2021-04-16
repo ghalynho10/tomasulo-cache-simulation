@@ -32,6 +32,9 @@ uint64_t K;
 uint64_t L;
 uint64_t P;
 
+uint64_t Max_K;
+uint64_t Max_L;
+
 // uint64_t cycle = 0;
 
 //defining structure for the scheduling queue
@@ -117,6 +120,9 @@ void setup_proc(const procsim_conf *conf)
     K = conf->K;
     L = conf->L;
     P = conf->P;
+
+    Max_K = conf->K;
+    Max_L = conf->L;
 
     ROB_size = conf->R;
     RS_max_value = 2 * (J + K + L);
@@ -310,6 +316,22 @@ static void dispatch(procsim_stats *stats)
         }
         else if (DQ[0].opcode_sq == 7)
         {
+            SQ sqObject;
+            sqObject.dest_reg = -1;
+            sqObject.src1_reg = DQ[0].src1_reg;
+            sqObject.src1_ready = true;
+            sqObject.src2_reg = DQ[0].src2_reg;
+            sqObject.tag = DQ[0].tag;
+            sqObject.src2_ready = true;
+            RS.push_back(sqObject);
+
+            ROB robObject;
+            robObject.prev_preg = -1;
+            robObject.regno = -1;
+            robObject.ready = false;
+            robObject.tag = DQ[0].tag;
+            ROB_T.push_back(robObject);
+
             GLOBAL_STALL = true;
         }
         else
@@ -393,6 +415,125 @@ static void schedule(procsim_stats *stats)
 
 static void execute(procsim_stats *stats)
 {
+    for (int i = 0; i < Adder.size(); i++)
+    {
+        Adder[i].latency = Adder[i].latency - 1;
+        if (Adder[i].latency == 0)
+        {
+            for (int jj = 0; jj < RS.size(); jj++)
+            {
+                if (RS[jj].tag == Adder[i].tag)
+                {
+                    RS.erase(RS.begin() + jj);
+                    break;
+                }
+            }
+
+            for (int kk = 0; kk < ROB_T.size(); kk++)
+            {
+
+                if (ROB_T[kk].tag == Adder[i].tag)
+                {
+                    ROB_T[i].ready = true;
+                    if (ROB_T[kk].prev_preg != -1)
+                    {
+                        for (int kj = 0; kj < RegF.size(); kj++)
+                        {
+                            if (RegF[kj].preg == ROB_T[kk].prev_preg)
+                            {
+                                RegF[i].free = true;
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+
+            Adder.erase(Adder.begin() + i);
+            J = J + 1;
+        }
+    }
+
+    for (int i = 0; i < Multiplier.size(); i++)
+    {
+        if (Multiplier[i].latency == 0)
+        {
+            for (int jj = 0; jj < RS.size(); jj++)
+            {
+                if (RS[jj].tag == Multiplier[i].tag)
+                {
+                    RS.erase(RS.begin() + jj);
+                    break;
+                }
+            }
+            for (int kk = 0; kk < ROB_T.size(); kk++)
+            {
+
+                if (ROB_T[kk].tag == Multiplier[i].tag)
+                {
+                    ROB_T[i].ready = true;
+                    if (ROB_T[kk].prev_preg != -1)
+                    {
+                        for (int kj = 0; kj < RegF.size(); kj++)
+                        {
+                            if (RegF[kj].preg == ROB_T[kk].prev_preg)
+                            {
+                                RegF[i].free = true;
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+            Multiplier.erase(Multiplier.begin() + i);
+            if (K < Max_K)
+            {
+                K++;
+            }
+        }
+    }
+
+    for (int i = 0; i < Store_Loader.size(); i++)
+    {
+        if (Store_Loader[i].latency == 0)
+        {
+            for (int jj = 0; jj < RS.size(); jj++)
+            {
+                if (RS[jj].tag == Store_Loader[i].tag)
+                {
+                    RS.erase(RS.begin() + jj);
+                    break;
+                }
+            }
+            for (int kk = 0; kk < ROB_T.size(); kk++)
+            {
+
+                if (ROB_T[kk].tag == Store_Loader[i].tag)
+                {
+                    ROB_T[i].ready = true;
+                    if (ROB_T[kk].prev_preg != -1)
+                    {
+                        for (int kj = 0; kj < RegF.size(); kj++)
+                        {
+                            if (RegF[kj].preg == ROB_T[kk].prev_preg)
+                            {
+                                RegF[i].free = true;
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+            Store_Loader.erase(Store_Loader.begin() + i);
+            if (L < Max_L)
+            {
+                L++;
+            }
+        }
+    }
 }
 
 static void state_update(procsim_stats *stats)
