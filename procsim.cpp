@@ -2,6 +2,8 @@
 #include <cstdio>
 #include <cinttypes>
 #include <iostream>
+
+#include <algorithm>
 using namespace std;
 
 #include <vector>
@@ -12,6 +14,9 @@ uint64_t GLOBAL_CLOCK = 0;
 bool RAISE_EXCEPTION = false;
 bool ALL_DONE = false;
 bool freePreg = false;
+
+//debug variables
+bool read_instruc;
 
 // You may define any global variables here
 
@@ -46,9 +51,15 @@ struct DisQ
     int32_t src1_reg;
     int32_t src2_reg;
     uint64_t tag;
+    // uint64_t fetch_cycle;        // cycle in which fetched
     uint64_t ld_st_addr;
     uint64_t br_target;
     bool br_taken;
+
+    // uint64_t dispatch_cycle;     // cycle in which dispatched
+    // uint64_t schedule_cycle;     // cycle in which scheduled
+    // uint64_t execute_cycle;      // cycle in which executed
+    // uint64_t state_update_cycle; // cycle in which retired
 };
 
 struct SQ
@@ -61,6 +72,12 @@ struct SQ
     int32_t src2_reg;
     bool src2_ready = false;
     uint64_t tag;
+
+    // uint64_t fetch_cycle;        // cycle in which fetched
+    // uint64_t dispatch_cycle;     // cycle in which dispatched
+    // uint64_t schedule_cycle;     // cycle in which scheduled
+    // uint64_t execute_cycle;      // cycle in which executed
+    // uint64_t state_update_cycle; // cycle in which retired
 };
 
 // defining structure for the ROB
@@ -77,7 +94,7 @@ struct ROB
 struct Reg
 {
     int32_t preg;
-    uint64_t ready;
+    bool ready;
     bool free;
 };
 
@@ -92,6 +109,7 @@ struct FU
 vector<SQ> RS;   //Reservation station
 vector<DisQ> DQ; //Dispatch Queue
 vector<ROB> ROB_T;
+vector<ROB> ROB_T_Copy;
 vector<Reg> RegF;
 vector<int32_t> RAT;
 
@@ -115,7 +133,7 @@ void setup_proc(const procsim_conf *conf)
     ALL_DONE = false;
 
     // Student code should go below this line
-    J = conf->F;
+    F = conf->F;
     J = conf->J;
     K = conf->K;
     L = conf->L;
@@ -134,7 +152,7 @@ void setup_proc(const procsim_conf *conf)
         if (i < 32)
         {
             regObject.preg = i;
-            regObject.ready = 1;
+            regObject.ready = true;
             regObject.free = false;
             RegF.push_back(regObject);
 
@@ -143,7 +161,7 @@ void setup_proc(const procsim_conf *conf)
         else
         {
             regObject.preg = i;
-            regObject.ready = 1;
+            regObject.ready = true;
             regObject.free = true;
             RegF.push_back(regObject);
         }
@@ -175,7 +193,7 @@ void freeRob(int32_t src_dq, int32_t src_sq, bool ready)
 {
     for (uint64_t i = ROB_T.size(); i > 0; i--)
     {
-        if (ROB_T[i].regno == src_dq)
+        if (ROB_T[i].regno == (uint64_t)src_dq)
         {
             if (ROB_T[i].ready)
             {
@@ -189,7 +207,7 @@ void freeRob(int32_t src_dq, int32_t src_sq, bool ready)
             }
             break;
         }
-        else
+        else if (i == 0)
         {
             src_sq = RAT[src_dq];
             ready = true;
@@ -197,25 +215,53 @@ void freeRob(int32_t src_dq, int32_t src_sq, bool ready)
     }
 }
 
+bool robSorting(const ROB &a, ROB &b)
+{
+    return a.tag < b.tag;
+}
+
 static void fetch(procsim_stats *stats)
 {
     // Sample for how instructions are read from the trace
     instruction *new_inst = new instruction;
-    read_instruction(new_inst);
+    read_instruc = read_instruction(new_inst);
 
-    // GLOBAL_CLOCK++;
+    if (!read_instruc)
+    {
+        ALL_DONE = true;
+    }
+
+    if (RAISE_EXCEPTION)
+    {
+        DisQ dqObject;
+        dqObject.opcode_sq = 7;
+        dqObject.tag = tag;
+        DQ.insert(DQ.begin(), dqObject);
+    }
 
     for (uint64_t i = 0; i < F; i++)
     {
-        if (new_inst->opcode == 5)
+        tag++;
+        if (new_inst->opcode == 5 || new_inst->opcode == 4)
         {
-            DQ.push_back({new_inst->inst_addr,
-                          new_inst->opcode,
-                          new_inst->dest_reg,
-                          new_inst->src_reg[0],
-                          new_inst->src_reg[1],
-                          tag + 1,
-                          new_inst->ld_st_addr});
+            DisQ dqObject;
+            dqObject.address = new_inst->inst_addr;
+            dqObject.opcode_sq = new_inst->opcode;
+            dqObject.dest_reg = new_inst->dest_reg;
+            dqObject.src1_reg = new_inst->src_reg[0];
+            dqObject.src2_reg = new_inst->src_reg[1];
+            dqObject.tag = tag;
+            dqObject.ld_st_addr = new_inst->ld_st_addr;
+            DQ.push_back(dqObject);
+            // DQ.push_back({new_inst->inst_addr,
+            //               new_inst->opcode,
+            //               new_inst->dest_reg,
+            //               new_inst->src_reg[0],
+            //               new_inst->src_reg[1],
+            //               tag + 1,
+            //               //   new_inst->fetch_cycle,
+            //               new_inst->ld_st_addr});
+            stats->store_instructions++; // stats for store instructions
         }
         else if (new_inst->opcode == 6)
         {
@@ -227,15 +273,25 @@ static void fetch(procsim_stats *stats)
             dqObject.src2_reg = new_inst->src_reg[1];
             dqObject.br_target = new_inst->br_target;
             dqObject.br_taken = new_inst->br_taken;
-            dqObject.tag = tag + 1;
+            dqObject.tag = tag;
             DQ.push_back(dqObject);
+
+            stats->branch_instructions++; //stats for branch instructions
         }
         else
         {
-            DQ.push_back({new_inst->inst_addr, new_inst->opcode, new_inst->dest_reg, new_inst->src_reg[0], new_inst->src_reg[1], tag + 1});
+            DisQ dqObject;
+            dqObject.address = new_inst->inst_addr;
+            dqObject.opcode_sq = new_inst->opcode;
+            dqObject.dest_reg = new_inst->dest_reg;
+            dqObject.src1_reg = new_inst->src_reg[0];
+            dqObject.src2_reg = new_inst->src_reg[1];
+            dqObject.tag = tag;
+            DQ.push_back(dqObject);
+            // DQ.push_back({new_inst->inst_addr, new_inst->opcode, new_inst->dest_reg, new_inst->src_reg[0], new_inst->src_reg[1], tag + 1});
         }
 
-        new_inst->fetch_cycle = GLOBAL_CLOCK;
+        // new_inst->fetch_cycle = GLOBAL_CLOCK;
     }
 }
 
@@ -250,6 +306,10 @@ static void dispatch(procsim_stats *stats)
         }
         if ((DQ[0].opcode_sq != OP_NOP) && DQ[0].opcode_sq != 7)
         {
+            if (DQ[0].opcode_sq == OP_LOAD)
+            {
+                stats->load_instructions++; //stats for load instructions
+            }
             SQ sqObject;
 
             if (DQ[0].dest_reg < (0))
@@ -264,7 +324,6 @@ static void dispatch(procsim_stats *stats)
                 }
                 else
                 {
-                    // sqObject.src1_reg = RAT[DQ[0].src1_reg];
                     freeRob(DQ[0].src1_reg, sqObject.src1_reg, sqObject.src1_ready);
                 }
                 if (DQ[0].src2_reg < 0)
@@ -285,6 +344,7 @@ static void dispatch(procsim_stats *stats)
                     sqObject.tag = DQ[0].tag;
                     sqObject.dest_reg = RegF[freePRegIndex()].preg;
                     RegF[freePRegIndex()].free = false;
+                    RegF[freePRegIndex()].ready = false;
                     RAT[DQ[0].dest_reg] = sqObject.dest_reg;
                     if (DQ[0].src1_reg < 0)
                     {
@@ -318,9 +378,9 @@ static void dispatch(procsim_stats *stats)
         {
             SQ sqObject;
             sqObject.dest_reg = -1;
-            sqObject.src1_reg = DQ[0].src1_reg;
+            // sqObject.src1_reg = DQ[0].src1_reg;
             sqObject.src1_ready = true;
-            sqObject.src2_reg = DQ[0].src2_reg;
+            // sqObject.src2_reg = DQ[0].src2_reg;
             sqObject.tag = DQ[0].tag;
             sqObject.src2_ready = true;
             RS.push_back(sqObject);
@@ -333,6 +393,8 @@ static void dispatch(procsim_stats *stats)
             ROB_T.push_back(robObject);
 
             GLOBAL_STALL = true;
+
+            stats->num_exceptions++; //stats for interrupt instructions
         }
         else
         {
@@ -415,38 +477,38 @@ static void schedule(procsim_stats *stats)
 
 static void execute(procsim_stats *stats)
 {
-    for (int i = 0; i < Adder.size(); i++)
+    for (uint64_t i = 0; i < Adder.size(); i++)
     {
         Adder[i].latency = Adder[i].latency - 1;
         if (Adder[i].latency == 0)
         {
-            for (int jj = 0; jj < RS.size(); jj++)
+            for (uint64_t jj = 0; jj < RS.size(); jj++)
             {
                 if (RS[jj].tag == Adder[i].tag)
                 {
+                    if (RS[jj].dest_reg != -1)
+                    {
+                        for (uint64_t kj = 0; kj < RegF.size(); kj++)
+                        {
+                            if (RegF[kj].preg == RS[jj].dest_reg)
+                            {
+                                RegF[i].ready = true;
+                                break;
+                            }
+                        }
+                    }
                     RS.erase(RS.begin() + jj);
                     break;
                 }
             }
 
-            for (int kk = 0; kk < ROB_T.size(); kk++)
+            for (uint64_t kk = 0; kk < ROB_T.size(); kk++)
             {
 
                 if (ROB_T[kk].tag == Adder[i].tag)
                 {
                     ROB_T[i].ready = true;
-                    if (ROB_T[kk].prev_preg != -1)
-                    {
-                        for (int kj = 0; kj < RegF.size(); kj++)
-                        {
-                            if (RegF[kj].preg == ROB_T[kk].prev_preg)
-                            {
-                                RegF[i].free = true;
-                                break;
-                            }
-                        }
-                        break;
-                    }
+                    break;
                 }
             }
 
@@ -455,36 +517,36 @@ static void execute(procsim_stats *stats)
         }
     }
 
-    for (int i = 0; i < Multiplier.size(); i++)
+    for (uint64_t i = 0; i < Multiplier.size(); i++)
     {
         if (Multiplier[i].latency == 0)
         {
-            for (int jj = 0; jj < RS.size(); jj++)
+            for (uint64_t jj = 0; jj < RS.size(); jj++)
             {
                 if (RS[jj].tag == Multiplier[i].tag)
                 {
+                    if (RS[jj].dest_reg != -1)
+                    {
+                        for (uint64_t kj = 0; kj < RegF.size(); kj++)
+                        {
+                            if (RegF[kj].preg == RS[jj].dest_reg)
+                            {
+                                RegF[i].ready = true;
+                                break;
+                            }
+                        }
+                    }
                     RS.erase(RS.begin() + jj);
                     break;
                 }
             }
-            for (int kk = 0; kk < ROB_T.size(); kk++)
+            for (uint64_t kk = 0; kk < ROB_T.size(); kk++)
             {
 
                 if (ROB_T[kk].tag == Multiplier[i].tag)
                 {
                     ROB_T[i].ready = true;
-                    if (ROB_T[kk].prev_preg != -1)
-                    {
-                        for (int kj = 0; kj < RegF.size(); kj++)
-                        {
-                            if (RegF[kj].preg == ROB_T[kk].prev_preg)
-                            {
-                                RegF[i].free = true;
-                                break;
-                            }
-                        }
-                        break;
-                    }
+                    break;
                 }
             }
             Multiplier.erase(Multiplier.begin() + i);
@@ -495,36 +557,36 @@ static void execute(procsim_stats *stats)
         }
     }
 
-    for (int i = 0; i < Store_Loader.size(); i++)
+    for (uint64_t i = 0; i < Store_Loader.size(); i++)
     {
         if (Store_Loader[i].latency == 0)
         {
-            for (int jj = 0; jj < RS.size(); jj++)
+            for (uint64_t jj = 0; jj < RS.size(); jj++)
             {
                 if (RS[jj].tag == Store_Loader[i].tag)
                 {
+                    if (RS[jj].dest_reg != -1)
+                    {
+                        for (uint64_t kj = 0; kj < RegF.size(); kj++)
+                        {
+                            if (RegF[kj].preg == RS[jj].dest_reg)
+                            {
+                                RegF[i].ready = true;
+                                break;
+                            }
+                        }
+                    }
                     RS.erase(RS.begin() + jj);
                     break;
                 }
             }
-            for (int kk = 0; kk < ROB_T.size(); kk++)
+            for (uint64_t kk = 0; kk < ROB_T.size(); kk++)
             {
 
                 if (ROB_T[kk].tag == Store_Loader[i].tag)
                 {
                     ROB_T[i].ready = true;
-                    if (ROB_T[kk].prev_preg != -1)
-                    {
-                        for (int kj = 0; kj < RegF.size(); kj++)
-                        {
-                            if (RegF[kj].preg == ROB_T[kk].prev_preg)
-                            {
-                                RegF[i].free = true;
-                                break;
-                            }
-                        }
-                        break;
-                    }
+                    break;
                 }
             }
             Store_Loader.erase(Store_Loader.begin() + i);
@@ -538,6 +600,49 @@ static void execute(procsim_stats *stats)
 
 static void state_update(procsim_stats *stats)
 {
+
+    // for (uint64_t i = 0; i < ROB_T.size(); i++)
+    // {
+
+    //     cout << ROB_T[i].tag << "i: " << i << endl;
+    // }
+
+    for (int i = 0; i < ROB_T.size(); i++)
+    {
+        if (!ROB_T.empty() && ROB_T[0].ready != false)
+        {
+            // if (ROB_T[0].ready != false)
+            // {
+            if (ROB_T[0].prev_preg < 0)
+            {
+                GLOBAL_STALL = false;
+                // ROB_T.erase(ROB_T.begin());
+                // stats->instructions_retired++;
+            }
+            else
+            {
+                for (uint64_t i = 0; i < RegF.size(); i++)
+                {
+                    if (ROB_T[0].prev_preg == RegF[i].preg)
+                    {
+                        RegF[i].free = true;
+                        break;
+                    }
+                }
+
+                for (uint64_t jj = 0; jj < RAT.size(); jj++)
+                {
+                    if (ROB_T[0].regno == jj)
+                    {
+                        RAT[jj] = (int32_t)jj;
+                        break;
+                    }
+                }
+            }
+            stats->instructions_retired++;
+            ROB_T.erase(ROB_T.begin());
+        }
+    }
 }
 
 /**
@@ -568,6 +673,13 @@ void run_proc(procsim_stats *stats, const procsim_conf *conf)
         {
             RAISE_EXCEPTION = true;
         }
+
+        // cout << read_instruc << "     D: " << DQ.size() << endl;
+
+        // if (!read_instruc && ROB_T.empty() && RS.empty() && DQ.empty())
+        // {
+        //     ALL_DONE = true;
+        // }
 
         // Run the loop until all the instructions in the trace have retired
         // Feel free to replace the condition of the do-while loop

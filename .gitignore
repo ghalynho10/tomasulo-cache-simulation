@@ -1,0 +1,6 @@
+# *.log
+*.py
+*.gz
+*txt
+*.out
+*.tar.gz
